@@ -1,4 +1,3 @@
-// ./app/api/linkedin/fetch/route.ts
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
@@ -32,15 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "LinkedIn URL not found in identity metadata" }, { status: 400 })
     }
 
-    // EnrichLayer call with LinkedIn URL
-    const enrichRes = await fetch("https://enrichlayer.com/api/v2/profile", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${process.env.ENRICH_API_KEY}`,
-      },
-      next: { revalidate: 10 }, // optional caching if ISR supported
-    })
-
+    // Construct EnrichLayer API parameters
     const enrichParams = new URLSearchParams({
       linkedin_profile_url: linkedinProfileUrl,
       extra: "include",
@@ -55,6 +46,7 @@ export async function POST(request: NextRequest) {
       fallback_to_cache: "on-error",
     })
 
+    // Make the EnrichLayer API call
     const enriched = await fetch(`https://enrichlayer.com/api/v2/profile?${enrichParams}`, {
       headers: {
         Authorization: `Bearer ${process.env.ENRICH_API_KEY}`,
@@ -63,12 +55,16 @@ export async function POST(request: NextRequest) {
 
     if (!enriched.ok) {
       const msg = await enriched.text()
-      return NextResponse.json({ error: "EnrichLayer error", details: msg }, { status: 500 })
+      return NextResponse.json({ 
+        error: "EnrichLayer error", 
+        details: msg,
+        linkedin_url: linkedinProfileUrl  // Include the URL for debugging
+      }, { status: 500 })
     }
 
     const enrichedData = await enriched.json()
 
-    // Upsert resume record
+    // Upsert resume record with the enriched data
     const { data, error } = await supabase
       .from("resumes")
       .upsert({
@@ -84,7 +80,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ data, message: "LinkedIn data synced from EnrichLayer." })
+    return NextResponse.json({ 
+      data, 
+      message: "LinkedIn data synced from EnrichLayer successfully." 
+    })
   } catch (error) {
     console.error("LinkedIn sync error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
