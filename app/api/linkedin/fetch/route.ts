@@ -17,43 +17,60 @@ export async function POST(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // 1. Get the authenticated user
-  const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+  // Wait for Supabase auth to propagate, retry up to 3 times for eventual consistency
+  let user = null, userError = null, attempts = 0;
+  while (attempts < 3) {
+    const res = await supabase.auth.getUser(token);
+    user = res.data.user;
+    userError = res.error;
+    if (user) break;
+    await new Promise((r) => setTimeout(r, 500));
+    attempts++;
+  }
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. Find this user's resume row
-  const { data: resume, error: resumeError } = await supabase
-    .from("resumes")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
-
+  // Resume row may not exist yet; wait for it up to 3 times
+  let resume = null, resumeError = null;
+  attempts = 0;
+  while (attempts < 3) {
+    const res = await supabase
+      .from("resumes")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+    resume = res.data;
+    resumeError = res.error;
+    if (resume) break;
+    await new Promise((r) => setTimeout(r, 500));
+    attempts++;
+  }
   if (resumeError || !resume) {
     return NextResponse.json({ error: "Resume not found" }, { status: 404 });
   }
 
-  // 3. Get LinkedIn access token from identity
+  // Get LinkedIn access token from Supabase identity
   const identity = user.identities?.find(
     (id) => id.provider === "linkedin" || id.provider === "linkedin_oidc"
   );
-  if (!identity?.identity_data?.access_token) {
+  if (!identity?.identity_data?.access_token)
     return NextResponse.json({ error: "No LinkedIn access token found" }, { status: 400 });
-  }
 
-  // 4. Fetch user's vanityName from LinkedIn API
+  // Fetch LinkedIn profile URL (vanityName)
   let linkedinProfileUrl = resume.linkedin_profile_url;
   if (!linkedinProfileUrl) {
     const profileRes = await fetch(
-      "https://api.linkedin.com/v2/me?projection=(id,vanityName)",
-      {
-        headers: { Authorization: `Bearer ${identity.identity_data.access_token}` },
-      }
+      "https://api.linkedin.com/v2/me?projection=(vanityName)",
+      { headers: { Authorization: `Bearer ${identity.identity_data.access_token}` } }
     );
+    if (!profileRes.ok) {
+      return NextResponse.json({ error: "Failed to fetch LinkedIn profile." }, { status: 502 });
+    }
     const profile = await profileRes.json();
     if (profile.vanityName) {
       linkedinProfileUrl = `https://www.linkedin.com/in/${profile.vanityName}`;
+      // Upsert the URL into resumes
       await supabase
         .from("resumes")
         .update({ linkedin_profile_url: linkedinProfileUrl })
@@ -63,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 5. Call EnrichLayer with LinkedIn profile URL
+  // Call EnrichLayer with LinkedIn profile URL
   let enrichData: any = {};
   try {
     const enrichResp = await fetch(
@@ -74,22 +91,27 @@ export async function POST(request: NextRequest) {
     );
     if (enrichResp.ok) {
       enrichData = await enrichResp.json();
+    } else {
+      return NextResponse.json({ error: "EnrichLayer API error" }, { status: 502 });
     }
   } catch (e) {
-    // Optional: log error
+    return NextResponse.json({ error: "EnrichLayer fetch failed", details: e }, { status: 502 });
   }
 
-  // 6. Store EnrichLayer JSON in Supabase resumes table
+  // Update the resume row with new LinkedIn URL and data
   const { error: updateError } = await supabase
     .from("resumes")
-    .update({ linkedin_data: enrichData })
+    .update({
+      linkedin_profile_url: linkedinProfileUrl,
+      linkedin_data: enrichData
+    })
     .eq("user_id", user.id);
 
   if (updateError) {
-    return NextResponse.json({ error: "Failed to update linkedin_data", details: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update resume", details: updateError.message }, { status: 500 });
   }
 
-  // 7. Return updated resume
+  // Return updated resume
   const { data: updatedResume } = await supabase
     .from("resumes")
     .select("*")
