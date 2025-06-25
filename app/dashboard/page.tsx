@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -12,37 +12,40 @@ export default function DashboardPage() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [session, setSession] = useState<any>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     let isMounted = true;
-    // Wait for session restoration
-    (async () => {
+    const code = searchParams.get("code");
+
+    async function handleSession() {
+      // If code is present, exchange for session (browser context!)
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        // Remove code param from URL for a clean look
+        router.replace("/dashboard");
+      }
+      // Always check session after possible exchange
       const { data: { session } } = await supabase.auth.getSession();
       if (isMounted) {
         setSession(session);
         setSessionChecked(true);
         if (!session) {
-          router.replace("/"); // Only redirect if truly not logged in
+          router.replace("/");
         }
       }
-    })();
+    }
+    handleSession();
     return () => { isMounted = false };
-  }, [router]);
+  }, [router, searchParams]);
 
-  if (!sessionChecked) {
-    // Don't show dashboard or redirect until we know
-    return <div>Loading…</div>;
-  }
-  if (!session) {
-    // This will never render because of the redirect, but it's a fallback
-    return <div>Redirecting…</div>;
-  }
+  if (!sessionChecked) return <div>Loading…</div>;
+  if (!session) return null;
 
-  // Now safe to fetch user data, resumes, etc.
   return (
     <div>
       <h1>Your Dashboard</h1>
-      {/* Insert resume grid, API fetches, etc. here */}
+      {/* Your dashboard logic here */}
     </div>
   );
 }
