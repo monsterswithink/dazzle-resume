@@ -9,42 +9,40 @@ const supabase = createClient(
 );
 
 export default function DashboardPage() {
-  const [resume, setResume] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [session, setSession] = useState<any>(null);
   const router = useRouter();
 
   useEffect(() => {
+    let isMounted = true;
+    // Wait for session restoration
     (async () => {
-      setLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push("/");
-        return;
+      if (isMounted) {
+        setSession(session);
+        setSessionChecked(true);
+        if (!session) {
+          router.replace("/"); // Only redirect if truly not logged in
+        }
       }
-      // Guarantee resume exists + is synced
-      const response = await fetch("/api/linkedin/fetch", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setResume(data);
-      } else {
-        setError(data.error || "Resume sync failed");
-      }
-      setLoading(false);
     })();
+    return () => { isMounted = false };
   }, [router]);
 
-  if (loading) return <div>Loading…</div>;
-  if (error) return <div className="text-red-600">{error}</div>;
-  if (!resume) return <div>No resume found</div>;
+  if (!sessionChecked) {
+    // Don't show dashboard or redirect until we know
+    return <div>Loading…</div>;
+  }
+  if (!session) {
+    // This will never render because of the redirect, but it's a fallback
+    return <div>Redirecting…</div>;
+  }
 
+  // Now safe to fetch user data, resumes, etc.
   return (
     <div>
-      <h1>Your Resume</h1>
-      <pre>{JSON.stringify(resume, null, 2)}</pre>
+      <h1>Your Dashboard</h1>
+      {/* Insert resume grid, API fetches, etc. here */}
     </div>
   );
 }
