@@ -1,5 +1,5 @@
 {
-  "name": "my-v0-project",
+  "name": "dazzle-resume",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.43.5",
     "@ai-sdk/openai": "latest",
     "@emotion/is-prop-valid": "latest",
     "@hello-pangea/dnd": "latest",
