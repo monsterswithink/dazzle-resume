@@ -5,9 +5,9 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get("code");
   const origin = url.origin;
 
+  // REDIRECT WITH CODE ONLY, do NOT call exchangeCodeForSession server-side
   if (code) {
-    // Redirect to a client-side page that handles the code
-    return NextResponse.redirect(`${origin}/auth/handling?code=${code}`);
+    return NextResponse.redirect(`${origin}/dashboard?code=${code}`);
   }
   return NextResponse.redirect(`${origin}/dashboard?auth=error`);
 }
