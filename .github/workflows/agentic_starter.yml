@@ -1,0 +1,83 @@
+name: Agentic Workflow Execution
+
+on:
+  push:
+    paths:
+      - ROOT/MAIN/INSTRUCTIONS_AI.readme
+  workflow_dispatch:
+
+jobs:
+  agentic-workflow:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      actions: write
+      workflows: write
+
+    steps:
+      # Step 1: Checkout Repository
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+      # with:
+       #   ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        #  persist-credentials: false
+
+      # Step 2: Extract Objective and Keys Path
+      - name: Extract Fields from INSTRUCTIONS_AI.readme
+        id: extract-fields
+        run: |
+          if [[ -f "ROOT/MAIN/INSTRUCTIONS_AI.readme" ]]; then
+            OBJECTIVE=$(grep -oP '(?<=\[OBJECTIVE\]: ).*' ROOT/MAIN/INSTRUCTIONS_AI.readme)
+            KEYS_PATH=$(grep -oP '(?<=\[KEYS PATH\]: ).*' ROOT/MAIN/INSTRUCTIONS_AI.readme)
+            echo "OBJECTIVE=$OBJECTIVE" >> $GITHUB_ENV
+            echo "KEYS_PATH=$KEYS_PATH" >> $GITHUB_ENV
+          else
+            echo "File ROOT/MAIN/INSTRUCTIONS_AI.readme does not exist."
+            exit 1
+
+      # Step 3: Context Online Retrieval (if applicable)
+      - name: Context Retrieval Online
+        if: contains(env.OBJECTIVE, 'retrieve context online')
+        run: |
+          echo "Retrieving context online..."
+          curl -X GET "https://context-api.example.com/retrieve" \
+          -d "objective=${{ env.OBJECTIVE }}" \
+          -H "Authorization: Bearer ${{ secrets.CONTEXT_API_KEY }}"
+
+      # Step 4: Execute Deep Reasoning Using Gemini AI API
+      - name: Deep Reasoning via Gemini AI
+        id: gemini-reasoning
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          curl -X POST "https://ai.google.dev/gemini-api/v2.5-pro/reason" \
+          -H "Authorization: Bearer $GEMINI_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "objective": "${{ env.OBJECTIVE }}",
+            "keys_path": "${{ env.KEYS_PATH }}"
+          }'
+
+      # Step 5: Create/Update Workflow Files
+      - name: Create/Update GitHub Workflow
+        run: |
+          echo "Creating or Updating Workflow..."
+          WORKFLOW_FILE="new_workflow.yml"
+          echo "name: Generated Workflow Based on Objective" > .github/workflows/$WORKFLOW_FILE
+          echo "on:" >> .github/workflows/$WORKFLOW_FILE
+          echo "  workflow_dispatch:" >> .github/workflows/$WORKFLOW_FILE
+          echo "jobs:" >> .github/workflows/$WORKFLOW_FILE
+          echo "  generated-job:" >> .github/workflows/$WORKFLOW_FILE
+          echo "    runs-on: ubuntu-latest" >> .github/workflows/$WORKFLOW_FILE
+          echo "    steps:" >> .github/workflows/$WORKFLOW_FILE
+          echo "      - name: Execute Task" >> .github/workflows/$WORKFLOW_FILE
+          echo "        run: echo 'Task executed based on objective: ${OBJECTIVE}'" >> .github/workflows/$WORKFLOW_FILE
+
+      # Step 6: Trigger Secondary Workflow
+      - name: Trigger Secondary Workflow
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: trigger-secondary-workflow
+          client-payload: '{"objective": "${{ env.OBJECTIVE }}", "keys_path": "${{ env.KEYS_PATH }}"}'
