@@ -9,43 +9,38 @@ const supabase = createClient(
 );
 
 export default function DashboardPage() {
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const [session, setSession] = useState<any>(null);
+  const [resume, setResume] = useState(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    let isMounted = true;
-    const code = searchParams.get("code");
-
-    async function handleSession() {
-      // If code is present, exchange for session (browser context!)
+    (async () => {
+      const code = searchParams.get("code");
       if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        // Remove code param from URL for a clean look
+        await supabase.auth.exchangeCodeForSession(code);
         router.replace("/dashboard");
+        return;
       }
-      // Always check session after possible exchange
       const { data: { session } } = await supabase.auth.getSession();
-      if (isMounted) {
-        setSession(session);
-        setSessionChecked(true);
-        if (!session) {
-          router.replace("/");
-        }
+      if (!session) {
+        router.replace("/");
+        return;
       }
-    }
-    handleSession();
-    return () => { isMounted = false };
+      const resp = await fetch("/api/linkedin/fetch", { method: "POST" });
+      const data = await resp.json();
+      setResume(data);
+      setLoading(false);
+    })();
   }, [router, searchParams]);
 
-  if (!sessionChecked) return <div>Loading…</div>;
-  if (!session) return null;
+  if (loading) return <div>Loading…</div>;
+  if (!resume) return <div>No resume data found.</div>;
 
   return (
     <div>
-      <h1>Your Dashboard</h1>
-      {/* Your dashboard logic here */}
+      <h1>Your Resume</h1>
+      <pre>{JSON.stringify(resume, null, 2)}</pre>
     </div>
   );
 }
